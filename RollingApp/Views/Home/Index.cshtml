@@ -1,0 +1,182 @@
+﻿@model IEnumerable<RollingApp.Models.Domain.Mill>
+@{
+    ViewData["Title"] = "Выбор маршрута";
+}
+
+<div class="row mt-4 justify-content-center">
+    <div class="col-md-12">
+        <div class="card shadow border-dark">
+            <div class="card-header bg-dark text-white">
+                <h4 class="mb-0">Выбор стана и профиля</h4>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6 mb-4">
+                        <label class="form-label fw-bold">1. Выберите Стан</label>
+                        <select id="millSelect" class="form-select form-select-lg border-primary" onchange="loadMillData()">
+                            <option value="">-- Выберите стан --</option>
+                            @foreach (var mill in Model)
+                            {
+                                <option value="@mill.Id">@mill.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div id="profileSection" class="col-md-6 mb-4 d-none">
+                        <label class="form-label fw-bold">2. Выберите Профиль</label>
+                        <div class="input-group">
+                            <select id="profileSelect" class="form-select form-select-lg border-success">
+                                <!-- Подгружается через AJAX -->
+                            </select>
+                            <button class="btn btn-outline-success" onclick="showNewProfileModal()">+ Новый</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="text-center mb-4">
+                    <button id="btnGoToCalibration" class="btn btn-primary btn-lg w-50 disabled" onclick="goToCalibration()">
+                        Перейти к калибровке ➔
+                    </button>
+                </div>
+
+                <!-- Таблица оборудования стана (только чтение) -->
+                <div id="standsTableContainer" class="d-none mt-4">
+                    <h5 class="fw-bold text-secondary border-bottom pb-2">Характеристики оборудования выбранного стана</h5>
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-sm text-center align-middle" id="homeStandsTable" style="font-size: 0.8rem;">
+                            <thead class="table-light">
+                                <tr>
+                                    <th data-bs-toggle="tooltip" title="Порядковый номер">N</th>
+                                    <th data-bs-toggle="tooltip" title="Название клети">Имя</th>
+                                    <th data-bs-toggle="tooltip" title="Диаметр бочки валка">DB</th>
+                                    <th data-bs-toggle="tooltip" title="Диаметр шейки валка">DSH</th>
+                                    <th data-bs-toggle="tooltip" title="Состояние поверхности валков">MU</th>
+                                    <th data-bs-toggle="tooltip" title="Коэфф. трения в подшипниках">FPOD</th>
+                                    <th data-bs-toggle="tooltip" title="Расстояние между клетями">LKL</th>
+                                    <th data-bs-toggle="tooltip" title="Расстояние между станинами">AKL</th>
+                                    <th data-bs-toggle="tooltip" title="Передаточное отношение редуктора">IR</th>
+                                    <th data-bs-toggle="tooltip" title="КПД линии привода">ETA</th>
+                                    <th data-bs-toggle="tooltip" title="Опытная частота вращения валков">NZ</th>
+                                    <th data-bs-toggle="tooltip" title="Номинальная мощность двигателя">NNOM</th>
+                                    <th data-bs-toggle="tooltip" title="Признак привода">PP</th>
+                                    <th data-bs-toggle="tooltip" title="Номинальная частота двигателя">NDVN</th>
+                                    <th data-bs-toggle="tooltip" title="Минимальная частота двигателя">NDVMIN</th>
+                                    <th data-bs-toggle="tooltip" title="Максимальная частота двигателя">NDVMAX</th>
+                                    <th data-bs-toggle="tooltip" title="Допустимое усилие прокатки">PDOP</th>
+                                    <th data-bs-toggle="tooltip" title="Допустимый крутящий момент">MDOP</th>
+                                    <th data-bs-toggle="tooltip" title="Коэффициент жесткости">C</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Заполняется через JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модалка добавления профиля -->
+<div class="modal fade" id="newProfileModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Новый профиль проката</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="text" id="newProfileName" class="form-control" placeholder="Введите название (напр. Круг 20мм)" />
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" onclick="createNewProfile()">Создать</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        const profileSelect = document.getElementById('profileSelect');
+        const btnGo = document.getElementById('btnGoToCalibration');
+        const standsContainer = document.getElementById('standsTableContainer');
+        const standsTbody = document.querySelector('#homeStandsTable tbody');
+
+        async function loadMillData() {
+            const millId = document.getElementById('millSelect').value;
+            profileSelect.innerHTML = '<option value="">-- Выберите профиль --</option>';
+            btnGo.classList.add('disabled');
+
+            if (!millId) {
+                document.getElementById('profileSection').classList.add('d-none');
+                standsContainer.classList.add('d-none');
+                return;
+            }
+
+            // 1. Загрузка профилей
+            const profRes = await fetch(`/Home/GetProfiles?millId=${millId}`);
+            const profiles = await profRes.json();
+            profiles.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.id;
+                opt.textContent = `${p.name}${p.isTemplate ? " [Оригинал]" : ""} (от ${p.date})`;
+                profileSelect.appendChild(opt);
+            });
+            document.getElementById('profileSection').classList.remove('d-none');
+
+            // 2. Загрузка оборудования (Клетей)
+            const standsRes = await fetch(`/Home/GetStands?millId=${millId}`);
+            const stands = await standsRes.json();
+            standsTbody.innerHTML = '';
+
+            if(stands.length === 0) {
+                standsTbody.innerHTML = '<tr><td colspan="19" class="text-danger fw-bold">Оборудование не настроено! Обратитесь к администратору.</td></tr>';
+            } else {
+                stands.forEach(s => {
+                    standsTbody.innerHTML += `<tr>
+                        <td class="fw-bold bg-light">${s.sequenceNumber}</td><td>${s.name}</td><td>${s.db}</td><td>${s.dsh}</td>
+                        <td>${s.mu}</td><td>${s.fpod}</td><td>${s.lkl}</td><td>${s.akl}</td><td>${s.ir}</td>
+                        <td>${s.eta}</td><td>${s.nz}</td><td>${s.nnom}</td><td>${s.pp}</td><td>${s.ndvn}</td>
+                        <td>${s.ndvmin}</td><td>${s.ndvmax}</td><td>${s.pdop}</td><td>${s.mdop}</td><td>${s.c}</td>
+                    </tr>`;
+                });
+            }
+            standsContainer.classList.remove('d-none');
+
+            // Переинициализация тултипов для новой таблицы
+            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            tooltipTriggerList.map(function (tooltipTriggerEl) { return new bootstrap.Tooltip(tooltipTriggerEl); });
+        }
+
+        profileSelect.addEventListener('change', function() {
+            if (this.value) btnGo.classList.remove('disabled');
+            else btnGo.classList.add('disabled');
+        });
+
+        function showNewProfileModal() { new bootstrap.Modal(document.getElementById('newProfileModal')).show(); }
+
+        async function createNewProfile() {
+            const millId = document.getElementById('millSelect').value;
+            const name = document.getElementById('newProfileName').value;
+            if (!name) return alert("Введите имя!");
+            const response = await fetch(`/Home/CreateProfile`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `millId=${millId}&name=${encodeURIComponent(name)}`
+            });
+            const result = await response.json();
+            if (result.success) {
+                bootstrap.Modal.getInstance(document.getElementById('newProfileModal')).hide();
+                await loadMillData();
+                profileSelect.value = result.profileId;
+                btnGo.classList.remove('disabled');
+            }
+        }
+
+        function goToCalibration() {
+            const profileId = profileSelect.value;
+            if (profileId) window.location.href = `/Calibration/Index/${profileId}`;
+        }
+    </script>
+}

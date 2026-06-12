@@ -1,0 +1,225 @@
+﻿@model IEnumerable<RollingApp.Models.Domain.Stand>
+@{
+    var mill = ViewBag.Mill as RollingApp.Models.Domain.Mill;
+    ViewData["Title"] = $"Клети стана: {mill?.Name}";
+    bool isAdmin = User.IsInRole("Admin");
+
+    // Список числовых полей клети для автоматизации отрисовки
+    var standFields = new[] { "DB", "DSH", "MU", "FPOD", "LKL", "AKL", "IR", "ETA", "NZ", "NNOM", "PP", "NDVN", "NDVMIN", "NDVMAX", "PDOP", "MDOP", "C" };
+}
+
+<h2>Оборудование клетей стана: <span class="text-primary">@mill?.Name</span></h2>
+<a href="/Mills/Index" class="btn btn-secondary btn-sm mb-3">← Назад к станам</a>
+
+<div class="table-responsive" style="max-height: 70vh; overflow-y: auto;">
+    <table class="table table-bordered table-sm table-hover align-middle text-center" id="standsTable" style="font-size: 0.85rem;">
+        <thead class="table-dark" style="position: sticky; top: 0; z-index: 1;">
+            <tr>
+
+                <th data-bs-toggle="tooltip" title="Порядковый номер">N</th>
+                <th data-bs-toggle="tooltip" title="Название клети">Имя</th>
+                <th data-bs-toggle="tooltip" title="Диаметр бочки валка">DB</th>
+                <th data-bs-toggle="tooltip" title="Диаметр шейки валка">DSH</th>
+                <th data-bs-toggle="tooltip" title="Состояние поверхности валков">MU</th>
+                <th data-bs-toggle="tooltip" title="Коэфф. трения в подшипниках">FPOD</th>
+                <th data-bs-toggle="tooltip" title="Расстояние между клетями">LKL</th>
+                <th data-bs-toggle="tooltip" title="Расстояние между станинами">AKL</th>
+                <th data-bs-toggle="tooltip" title="Передаточное отношение редуктора">IR</th>
+                <th data-bs-toggle="tooltip" title="КПД линии привода">ETA</th>
+                <th data-bs-toggle="tooltip" title="Опытная частота вращения валков">NZ</th>
+                <th data-bs-toggle="tooltip" title="Номинальная мощность двигателя">NNOM</th>
+                <th data-bs-toggle="tooltip" title="Признак привода">PP</th>
+                <th data-bs-toggle="tooltip" title="Номинальная частота двигателя">NDVN</th>
+                <th data-bs-toggle="tooltip" title="Минимальная частота двигателя">NDVMIN</th>
+                <th data-bs-toggle="tooltip" title="Максимальная частота двигателя">NDVMAX</th>
+                <th data-bs-toggle="tooltip" title="Допустимое усилие прокатки">PDOP</th>
+                <th data-bs-toggle="tooltip" title="Допустимый крутящий момент">MDOP</th>
+                <th data-bs-toggle="tooltip" title="Коэффициент жесткости">C</th>
+                @if (isAdmin)
+                {
+                    <th>Действия</th>
+                }
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in Model)
+            {
+                <tr data-id="@item.Id">
+                    <!-- Номер клети -->
+                    <td>
+                        <span class="view-mode fw-bold">@item.SequenceNumber</span>
+                        <input type="number" class="form-control form-control-sm p-1 edit-mode d-none" name="SequenceNumber" value="@item.SequenceNumber" />
+                    </td>
+                    <!-- Имя -->
+                    <td>
+                        <span class="view-mode text-nowrap">@item.Name</span>
+                        <input type="text" class="form-control form-control-sm p-1 edit-mode d-none" name="Name" value="@item.Name" />
+                    </td>
+
+                    <!-- Генерация всех числовых полей -->
+                    @foreach (var f in standFields)
+                    {
+                        var val = item.GetType().GetProperty(f)?.GetValue(item);
+                        string valStr = val != null ? Convert.ToDouble(val).ToString(System.Globalization.CultureInfo.InvariantCulture) : "0";
+                        <td>
+                            <span class="view-mode">@valStr</span>
+                            <input type="number" step="any" class="form-control form-control-sm p-1 edit-mode d-none" name="@f" value="@valStr" />
+                        </td>
+                    }
+
+                    <!-- Кнопки действий -->
+                    @if (isAdmin)
+                    {
+                        <td class="text-nowrap p-1">
+                            <button class="btn btn-sm btn-warning py-0 view-mode" onclick="toggleEdit(this)">Изменить</button>
+                            <button class="btn btn-sm btn-danger py-0 view-mode" onclick="deleteStand(this)">Удалить</button>
+
+                            <button class="btn btn-sm btn-success py-0 edit-mode d-none" onclick="saveStand(this)">Сохранить</button>
+                            <button class="btn btn-sm btn-secondary py-0 edit-mode d-none" onclick="cancelEdit(this)">Отмена</button>
+                        </td>
+                    }
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@if (isAdmin)
+{
+    <button class="btn btn-primary mt-3" onclick="addStandRow()">Добавить клеть</button>
+}
+
+@section Scripts {
+    <script>
+        const millId = @(mill?.Id ?? 0);
+        const standFields = @Html.Raw(Json.Serialize(standFields)); // Передаем массив полей из C# в JS
+
+        function toggleEdit(btn) {
+            const row = btn.closest('tr');
+            row.querySelectorAll('.view-mode').forEach(el => el.classList.add('d-none'));
+            row.querySelectorAll('.edit-mode').forEach(el => el.classList.remove('d-none'));
+        }
+
+        function cancelEdit(btn) {
+            const row = btn.closest('tr');
+            const isNew = row.getAttribute('data-id') === '0';
+
+            if (isNew) {
+                row.remove(); // Отменяем добавление
+            } else {
+                // Возвращаем данные из спанов в инпуты
+                row.querySelector('input[name="SequenceNumber"]').value = row.querySelector('td:nth-child(1) .view-mode').innerText;
+                row.querySelector('input[name="Name"]').value = row.querySelector('td:nth-child(2) .view-mode').innerText;
+
+                standFields.forEach((f, index) => {
+                    row.querySelector(`input[name="${f}"]`).value = row.querySelector(`td:nth-child(${index + 3}) .view-mode`).innerText;
+                });
+
+                row.querySelectorAll('.edit-mode').forEach(el => el.classList.add('d-none'));
+                row.querySelectorAll('.view-mode').forEach(el => el.classList.remove('d-none'));
+            }
+        }
+
+        function addStandRow() {
+            const tbody = document.querySelector('#standsTable tbody');
+            const tr = document.createElement('tr');
+            tr.setAttribute('data-id', '0');
+            const newSeqNum = tbody.children.length + 1;
+
+            let html = `
+                <td>
+                    <span class="view-mode fw-bold d-none">${newSeqNum}</span>
+                    <input type="number" class="form-control form-control-sm p-1 edit-mode" name="SequenceNumber" value="${newSeqNum}">
+                </td>
+                <td>
+                    <span class="view-mode text-nowrap d-none">Клеть ${newSeqNum}</span>
+                    <input type="text" class="form-control form-control-sm p-1 edit-mode" name="Name" value="Клеть ${newSeqNum}">
+                </td>`;
+
+            standFields.forEach(f => {
+                html += `
+                <td>
+                    <span class="view-mode d-none">0</span>
+                    <input type="number" step="any" class="form-control form-control-sm p-1 edit-mode" name="${f}" value="0">
+                </td>`;
+            });
+
+            html += `<td class="text-nowrap p-1">
+                        <button class="btn btn-sm btn-warning py-0 view-mode d-none" onclick="toggleEdit(this)">Изменить</button>
+                        <button class="btn btn-sm btn-danger py-0 view-mode d-none" onclick="deleteStand(this)">Удалить</button>
+
+                        <button class="btn btn-sm btn-success py-0 edit-mode" onclick="saveStand(this)">Сохранить</button>
+                        <button class="btn btn-sm btn-secondary py-0 edit-mode" onclick="cancelEdit(this)">Отмена</button>
+                     </td>`;
+            tr.innerHTML = html;
+            tbody.appendChild(tr);
+        }
+
+        async function saveStand(btn) {
+            const row = btn.closest('tr');
+            const data = {
+                Id: parseInt(row.getAttribute('data-id')),
+                MillId: millId,
+                SequenceNumber: parseInt(row.querySelector('input[name="SequenceNumber"]').value || 0),
+                Name: row.querySelector('input[name="Name"]').value,
+            };
+
+            standFields.forEach(f => {
+                data[f] = parseFloat(row.querySelector(`input[name="${f}"]`).value || 0);
+            });
+
+            const response = await fetch('/Stands/SaveStand', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+
+            if (result.success) {
+                if (data.Id === 0) row.setAttribute('data-id', result.id);
+
+                // Обновляем спаны
+                row.querySelector('td:nth-child(1) .view-mode').innerText = data.SequenceNumber;
+                row.querySelector('td:nth-child(2) .view-mode').innerText = data.Name;
+                standFields.forEach((f, index) => {
+                    row.querySelector(`td:nth-child(${index + 3}) .view-mode`).innerText = data[f];
+                });
+
+                // Переключаем интерфейс
+                row.querySelectorAll('.edit-mode').forEach(el => el.classList.add('d-none'));
+                row.querySelectorAll('.view-mode').forEach(el => el.classList.remove('d-none'));
+
+                // Сортируем клети по порядковому номеру
+                sortStands();
+            } else {
+                alert('Ошибка сохранения');
+            }
+        }
+
+        function sortStands() {
+            const tbody = document.querySelector('#standsTable tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+
+            rows.sort((a, b) => {
+                let numA = parseInt(a.querySelector('input[name="SequenceNumber"]').value) || 0;
+                let numB = parseInt(b.querySelector('input[name="SequenceNumber"]').value) || 0;
+                return numA - numB;
+            });
+
+            rows.forEach(row => tbody.appendChild(row));
+        }
+
+        async function deleteStand(btn) {
+            if (!confirm('Удалить эту клеть?')) return;
+            const row = btn.closest('tr');
+            const id = parseInt(row.getAttribute('data-id'));
+
+            const response = await fetch('/Stands/DeleteStand', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(id)
+            });
+            if ((await response.json()).success) row.remove();
+        }
+    </script>
+}

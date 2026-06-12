@@ -1,0 +1,101 @@
+﻿@model RollingApp.Models.Calculation.CalculationSettings
+@{
+    ViewData["Title"] = "Настройки расчета";
+    var profileId = ViewContext.RouteData.Values["id"];
+}
+
+<div class="row justify-content-center mt-4">
+    <div class="col-md-8">
+        <div class="card shadow border-dark">
+            <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                <h4 class="mb-0">Настройки моделирования: <span class="text-warning">@ViewBag.ProfileName</span></h4>
+            </div>
+            <div class="card-body">
+                <form asp-action="RunCalculation" asp-route-id="@profileId" method="post">
+
+                    <div class="mb-4 p-3 bg-light border-start border-4 border-primary">
+                        <label class="form-label fw-bold text-primary">Методика решения</label>
+                        <select asp-for="CalculationMethod" class="form-select form-select-lg border-primary">
+                            <option value="1">Метод кафедры ОМД УГТУ</option>
+                            <option value="2">Метод соответственной полосы</option>
+                        </select>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label fw-bold">Учет составляющих теплового баланса (K10)</label>
+                            <select asp-for="K10" class="form-select">
+                                <option value="1">Лучеиспускание и разогрев</option>
+                                <option value="0">Лучеиспускание, конвекция, теплопроводность и разогрев</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label fw-bold">Метод расчета сопротивления деформации (K11)</label>
+                            <select asp-for="K11" class="form-select">
+                                <option value="1">Зюзина В.И.</option>
+                                <option value="2">Андреюка Л.В. и Тюленева Г.Г.</option>
+                                <option value="3">С учетом динамического разупрочнения</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label fw-bold">Моделирование при площадях сечения (K14)</label>
+                            <select asp-for="K14" class="form-select">
+                                <option value="9">Расчетных</option>
+                                <option value="8">Заданных</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label fw-bold">Моделирование при коэфф. вытяжки (K15)</label>
+                            <select asp-for="K15" class="form-select">
+                                <option value="11">Расчетных</option>
+                                <option value="10">Заданных</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label fw-bold">Температурный режим (K13)</label>
+                            <select asp-for="K13" class="form-select">
+                                <option value="7">Расчетный</option>
+                                <option value="9">Опытный</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label fw-bold">Скоростной режим (валки) (K12)</label>
+                            <select asp-for="K12" class="form-select">
+                                <option value="0">Расчетная частота</option>
+                                <option value="1">Заданная частота</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label fw-bold">Расчет формоизменения? (K17)</label>
+                            <select asp-for="K17" class="form-select">
+                                <option value="1">Да</option>
+                                <option value="0">Нет</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label fw-bold">Тип стана (TS)</label>
+                            <select asp-for="TS" class="form-select">
+                                <option value="1">Непрерывный</option>
+                                <option value="2">Последовательный</option>
+                                <option value="3">Непрерывный с петлевой группой</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="text-center mt-4">
+                        <button type="submit" class="btn btn-success btn-lg px-5 shadow">К РАСЧЕТАМ ➔</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>

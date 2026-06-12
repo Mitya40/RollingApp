@@ -1,0 +1,8 @@
+services:
+ web:
+  container_name: rolling-app-jenkins-15
+  hostname: app
+  build: .
+  ports:
+   - "5315:5315"
+  network_mode: bridge

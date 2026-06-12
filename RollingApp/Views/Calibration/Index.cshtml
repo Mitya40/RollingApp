@@ -1,0 +1,361 @@
+﻿@model RollingApp.Models.Domain.Profile
+@using System.Globalization
+@{
+    ViewData["Title"] = "Калибровка валков";
+    var steels = ViewBag.Steels as List<RollingApp.Models.Domain.Steel>;
+    var stands = ViewBag.Stands as List<RollingApp.Models.Domain.Stand>;
+    var init = Model.InitialParameter;
+    bool canGoToCalculations = Model.Passes.Any() && Model.SteelId != null && init != null;
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h2>Калибровка: <span class="text-primary">@Model.Name</span></h2>
+        <h6 class="text-muted">Стан: @Model.Mill?.Name @(Model.IsTemplate ? " | [Оригинал]" : "")</h6>
+    </div>
+    <div>
+        <a href="/Calibration/Config/@Model.Id" class="btn btn-lg btn-success @(canGoToCalculations ? "" : "disabled")">
+            Перейти к расчетам ➔
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <!-- ЛЕВАЯ КОЛОНКА: Начальные параметры и Сталь -->
+    <div class="col-md-3">
+        <div class="card shadow mb-3 border-dark">
+            <div class="card-header bg-dark text-white fw-bold">1. Начальные параметры</div>
+            <div class="card-body bg-light p-2">
+                <div class="mb-2">
+                    <label class="form-label mb-0 small fw-bold">Дата</label>
+                    <input type="date" id="TargetDate" class="form-control form-control-sm" value="@(init?.TargetDate.ToString("yyyy-MM-dd") ?? DateTime.Now.ToString("yyyy-MM-dd"))" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label mb-0 small fw-bold">Марка стали</label>
+                    <select id="SteelId" class="form-select form-select-sm">
+                        <option value="">-- Выберите сталь --</option>
+                        @foreach (var s in steels)
+                        {
+                            <option value="@s.Id" selected="@(Model.SteelId == s.Id)">@s.Name</option>
+                        }
+                    </select>
+                </div>
+                <hr class="my-2" />
+                <div class="row g-1">
+                    <div class="col-6" data-bs-toggle="tooltip" title="Площадь сечения (W0)"><label class="small mb-0">W0</label><input type="number" step="any" id="W0" class="form-control form-control-sm" value="@(init?.W0.ToString(CultureInfo.InvariantCulture) ?? "0")" /></div>
+                    <div class="col-6" data-bs-toggle="tooltip" title="Периметр (P0)"><label class="small mb-0">P0</label><input type="number" step="any" id="P0" class="form-control form-control-sm" value="@(init?.P0.ToString(CultureInfo.InvariantCulture) ?? "0")" /></div>
+                    <div class="col-6" data-bs-toggle="tooltip" title="Длина (L0)"><label class="small mb-0">L0</label><input type="number" step="any" id="L0" class="form-control form-control-sm" value="@(init?.L0.ToString(CultureInfo.InvariantCulture) ?? "0")" /></div>
+                    <div class="col-6" data-bs-toggle="tooltip" title="Температура печи (T0)"><label class="small mb-0">T0</label><input type="number" step="any" id="T0" class="form-control form-control-sm" value="@(init?.T0.ToString(CultureInfo.InvariantCulture) ?? "0")" /></div>
+                    <div class="col-6" data-bs-toggle="tooltip" title="Время движения (TAU)"><label class="small mb-0">TAU</label><input type="number" step="any" id="TAU" class="form-control form-control-sm" value="@(init?.TAU.ToString(CultureInfo.InvariantCulture) ?? "0")" /></div>
+                    <div class="col-6" data-bs-toggle="tooltip" title="Запас частоты (LR)"><label class="small mb-0">LR</label><input type="number" step="any" id="LR" class="form-control form-control-sm" value="@(init?.LR.ToString(CultureInfo.InvariantCulture) ?? "0")" /></div>
+                    <div class="col-6" data-bs-toggle="tooltip" title="Кон. скорость (VK)"><label class="small mb-0">VK</label><input type="number" step="any" id="VK" class="form-control form-control-sm" value="@(init?.VK.ToString(CultureInfo.InvariantCulture) ?? "0")" /></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-grid gap-2">
+            <button class="btn btn-danger fw-bold" onclick="runDiagnostics()">Диагностика</button>
+            <button class="btn btn-warning fw-bold" onclick="saveCalibration(true, false)">Сохранить</button>
+            <button class="btn btn-secondary fw-bold" onclick="makeCopy()">Сделать копию</button>
+        </div>
+    </div>
+
+    <!-- ПРАВАЯ КОЛОНКА: Таблица калибровки -->
+    <div class="col-md-9">
+        <div class="card shadow border-dark h-100">
+            <div class="card-header bg-dark text-white fw-bold d-flex justify-content-between align-items-center">
+                <span>2. Таблица калибровки</span>
+                <button class="btn btn-sm btn-light text-dark fw-bold" onclick="addPassRow()">+ Добавить проход</button>
+            </div>
+            <div class="card-body p-0" style="overflow-x: auto; max-height: 600px;">
+                <table class="table table-bordered table-sm text-center mb-0 align-middle" id="passesTable" style="font-size: 0.75rem;">
+                    <thead class="table-secondary" style="position: sticky; top: 0; z-index: 1;">
+                        <tr>
+                            <th data-bs-toggle="tooltip" title="Номер прохода (клети)">N</th>
+                            <th data-bs-toggle="tooltip" title="Форма поперечного сечения полосы, задаваемой в калибр">Подкат</th>
+                            <th data-bs-toggle="tooltip" title="Форма поперечного сечения калибра">Калибр</th>
+                            <th data-bs-toggle="tooltip" title="Высота полосы, задаваемой в калибр, мм">H0</th>
+                            <th data-bs-toggle="tooltip" title="Ширина полосы, задаваемой в калибр, мм">B0</th>
+                            <th data-bs-toggle="tooltip" title="Высота полосы после прохода, мм">H1</th>
+                            <th data-bs-toggle="tooltip" title="Ширина полосы после прохода, мм">B1</th>
+                            <th data-bs-toggle="tooltip" title="Площадь поперечного сечения прокатанной полосы, мм2">W1</th>
+                            <th data-bs-toggle="tooltip" title="Зазор между валками, мм">S</th>
+                            <th data-bs-toggle="tooltip" title="Ширина калибра по врезу в валки, мм">Bвр</th>
+                            <th data-bs-toggle="tooltip" title="Ширина калибра по дну, мм">Bд</th>
+                            <th data-bs-toggle="tooltip" title="Радиус калибра, мм">R</th>
+                            <th data-bs-toggle="tooltip" title="Радиус овального калибра, мм">ROV</th>
+                            <th data-bs-toggle="tooltip" title="Вогнутость дна калибра (“яблоко”), мм">δ</th>
+                            <th data-bs-toggle="tooltip" title="Сумма расстояний от опоры валка до вертикальных осей калибров при многониточной прокатке, м">Σхi</th>
+                            <th data-bs-toggle="tooltip" title="Коэффициент плеча приложения равнодействующей усилия прокатки">φ</th>
+                            <th data-bs-toggle="tooltip" title="Число ниток, одновременно прокатываемых в клети">Z</th>
+                            <th data-bs-toggle="tooltip" title="Метод пересчета фасонных полос: 1 - Врацкий, 2 - Головин">SP</th>
+                            <th data-bs-toggle="tooltip" title="Температура полосы по экспериментальным данным, °С">Tоп</th>
+                            <th title="Удалить проход">X</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var p in Model.Passes.OrderBy(x => x.N))
+                        {
+                            <tr>
+                                <td><input type="number" class="form-control form-control-sm p-0 text-center fw-bold bg-light" name="N" value="@p.N" style="width: 35px;" readonly></td>
+                                <td>
+                                    <select class="form-select form-select-sm p-0 px-1" name="KOD0" style="width: 110px; font-size: 0.75rem;">
+                                        @foreach (var opt in new[] { (0, "---"), (1, "Гладкая бочка"), (2, "Круглый"), (3, "Квадратный"), (4, "Овальный"), (5, "Плоский овал"), (6, "Шестиугольный"), (7, "Ромбический"), (8, "Ящичный"), (9, "Ребровой овал"), (10, "Шестигранный"), (11, "Ребровой"), (12, "Квадрат(кант.)") })
+                                        {
+                                            <option value="@opt.Item1" selected="@(p.KOD0 == opt.Item1)">@opt.Item2</option>
+                                        }
+                                    </select>
+                                </td>
+                                <td>
+                                    <select class="form-select form-select-sm p-0 px-1" name="KOD1" style="width: 110px; font-size: 0.75rem;">
+                                        @foreach (var opt in new[] { (0, "---"), (1, "Гладкая бочка"), (2, "Круглый"), (3, "Квадратный"), (4, "Овальный"), (5, "Плоский овал"), (6, "Шестиугольный"), (7, "Ромбический"), (8, "Ящичный"), (9, "Ребровой овал"), (10, "Шестигранный"), (11, "Ребровой"), (12, "Квадрат(кант.)") })
+                                        {
+                                            <option value="@opt.Item1" selected="@(p.KOD1 == opt.Item1)">@opt.Item2</option>
+                                        }
+                                    </select>
+                                </td>
+                                <td><input type="number" step="any" class="form-control form-control-sm p-0 text-center" name="H0" value="@p.H0.ToString(CultureInfo.InvariantCulture)"></td>
+                                <td><input type="number" step="any" class="form-control form-control-sm p-0 text-center" name="B0" value="@p.B0.ToString(CultureInfo.InvariantCulture)"></td>
+                                <td><input type="number" step="any" class="form-control form-control-sm p-0 text-center" name="H1" value="@p.H1.ToString(CultureInfo.InvariantCulture)"></td>
+                                <td><input type="number" step="any" class="form-control form-control-sm p-0 text-center" name="B1" value="@p.B1.ToString(CultureInfo.InvariantCulture)"></td>
+                                <td><input type="number" step="any" class="form-control form-control-sm p-0 text-center bg-light" name="W" value="@p.W.ToString(CultureInfo.InvariantCulture)" readonly></td>
+                                <td><input type="number" step="any" class="form-control form-control-sm p-0 text-center" name="S" value="@p.S.ToString(CultureInfo.InvariantCulture)"></td>
+                                <td><input type="number" step="any" class="form-control form-control-sm p-0 text-center" name="BVR" value="@p.BVR.ToString(CultureInfo.InvariantCulture)"></td>
+                                <td><input type="number" step="any" class="form-control form-control-sm p-0 text-center" name="BD" value="@p.BD.ToString(CultureInfo.InvariantCulture)"></td>
+                                <td><input type="number" step="any" class="form-control form-control-sm p-0 text-center" name="R" value="@p.R.ToString(CultureInfo.InvariantCulture)"></td>
+                                <td><input type="number" step="any" class="form-control form-control-sm p-0 text-center" name="ROV" value="@p.ROV.ToString(CultureInfo.InvariantCulture)"></td>
+                                <td><input type="number" step="any" class="form-control form-control-sm p-0 text-center" name="R8" value="@p.R8.ToString(CultureInfo.InvariantCulture)"></td>
+                                <td><input type="number" step="any" class="form-control form-control-sm p-0 text-center" name="SUMX" value="@p.SUMX.ToString(CultureInfo.InvariantCulture)"></td>
+                                <td><input type="number" step="any" class="form-control form-control-sm p-0 text-center" name="PSI" value="@p.PSI.ToString(CultureInfo.InvariantCulture)"></td>
+                                <td><input type="number" class="form-control form-control-sm p-0 text-center" name="Z" value="@p.Z" style="width: 30px;"></td>
+                                <td>
+                                    <select class="form-select form-select-sm p-0 px-1 text-center" name="SP" style="width: 40px; font-size: 0.75rem;">
+                                        <option value="1" selected="@(p.SP == 1)">1</option>
+                                        <option value="2" selected="@(p.SP == 2)">2</option>
+                                    </select>
+                                </td>
+                                <td><input type="number" step="any" class="form-control form-control-sm p-0 text-center" name="TOP" value="@p.TOP.ToString(CultureInfo.InvariantCulture)"></td>
+                                <td>
+                                    <div class="btn-group w-100">
+                                        <button class="btn btn-sm btn-info py-0 px-1 text-white fw-bold" onclick="openDrawingModal(this)" title="Чертеж">📐</button>
+                                        <button class="btn btn-sm btn-danger py-0 px-1 fw-bold" onclick="this.closest('tr').remove()" title="Удалить">X</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно редактора-чертежа -->
+<div class="modal fade" id="drawingModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content shadow border-dark">
+            <div class="modal-header bg-dark text-white p-2">
+                <h5 class="modal-title m-0">Графическое отображение калибра и подката (Проход <span id="drawModalPassN"></span>)</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body bg-light">
+                <div class="row">
+                    <!-- ХОЛСТ -->
+                    <div class="col-md-8 text-center position-relative">
+                        <canvas id="profileCanvas" width="700" height="550" class="shadow-sm bg-white border border-secondary" style="cursor: crosshair; display: block; margin: 0 auto;"></canvas>
+                        <div class="d-flex justify-content-between align-items-center mt-2 px-3">
+                            <div class="text-muted fw-bold">Масштаб (Колёсико): <span id="scaleVal" class="text-primary">1.00</span> x</div>
+                            <button type="button" class="btn btn-sm btn-outline-dark fw-bold" onclick="setRealPhysicalScale()">🔍 1:1</button>
+                        </div>
+                    </div>
+
+                    <!-- ПОЛЯ ВВОДА -->
+                    <div class="col-md-4">
+                        <div class="card border-primary">
+                            <div class="card-header bg-primary text-white py-1 fw-bold">Геометрия калибра</div>
+                            <div class="card-body p-2" style="font-size: 0.85rem;">
+                                <div class="row g-2 mb-2">
+                                    <div class="col-6"><label class="mb-0 fw-bold">Высота подката (H0)</label><input type="number" id="m_H0" class="form-control form-control-sm" step="any"></div>
+                                    <div class="col-6"><label class="mb-0 fw-bold">Ширина подката (B0)</label><input type="number" id="m_B0" class="form-control form-control-sm" step="any"></div>
+                                </div>
+                                <div class="row g-2 mb-2">
+                                    <div class="col-6"><label class="mb-0 fw-bold text-primary">Высота калибра (H1)</label><input type="number" id="m_H1" class="form-control form-control-sm border-primary" step="any"></div>
+                                    <div class="col-6"><label class="mb-0 fw-bold text-primary">Ширина калибра (B1)</label><input type="number" id="m_B1" class="form-control form-control-sm border-primary" step="any"></div>
+                                </div>
+                                <div class="row g-2 mb-2">
+                                    <div class="col-6"><label class="mb-0 fw-bold">Зазор валков (S)</label><input type="number" id="m_S" class="form-control form-control-sm" step="any"></div>
+                                    <div class="col-6"><label class="mb-0 fw-bold">Ширина по врезу (BVR)</label><input type="number" id="m_BVR" class="form-control form-control-sm" step="any"></div>
+                                </div>
+                                <div class="row g-2 mb-2">
+                                    <div class="col-6"><label class="mb-0 fw-bold">Ширина по дну (BD)</label><input type="number" id="m_BD" class="form-control form-control-sm" step="any"></div>
+                                    <div class="col-6"><label class="mb-0 fw-bold">Вогнутость дна (δ/R8)</label><input type="number" id="m_R8" class="form-control form-control-sm" step="any"></div>
+                                </div>
+                                <div class="row g-2 mb-3 border-bottom pb-2">
+                                    <div class="col-6"><label class="mb-0 fw-bold">Радиус при верш. (R)</label><input type="number" id="m_R" class="form-control form-control-sm" step="any"></div>
+                                    <div class="col-6"><label class="mb-0 fw-bold">Радиус овала (ROV)</label><input type="number" id="m_ROV" class="form-control form-control-sm" step="any"></div>
+                                </div>
+                                <div class="row g-2">
+                                    <div class="col-12">
+                                        <label class="mb-0 fw-bold text-success">Площадь сечения W1</label>
+                                        <input type="number" id="m_W" class="form-control fw-bold text-success bg-white" readonly>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-footer p-2 d-flex justify-content-between">
+                                <button type="button" class="btn btn-secondary fw-bold" data-bs-dismiss="modal">Отменить</button>
+                                <button type="button" class="btn btn-success fw-bold" onclick="confirmDrawing()">Подтвердить ✔</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        const profileId = @Model.Id;
+        const shapeOptions = `
+            <option value="0">---</option>
+            <option value="1">Гладкая бочка</option>
+            <option value="2">Круглый</option>
+            <option value="3">Квадратный</option>
+            <option value="4">Овальный</option>
+            <option value="5">Плоский овал</option>
+            <option value="6">Шестиугольный</option>
+            <option value="7">Ромбический</option>
+            <option value="8">Ящичный</option>
+            <option value="9">Ребровой овал</option>
+            <option value="10">Шестигранный</option>
+            <option value="11">Ребровой</option>
+            <option value="12">Квадрат(кант.)</option>
+        `;
+
+        function addPassRow() {
+            const tbody = document.querySelector('#passesTable tbody');
+            const n = tbody.children.length + 1;
+            const tr = document.createElement('tr');
+            let html = `<td><input type="number" class="form-control form-control-sm p-0 text-center fw-bold bg-light" name="N" value="${n}" style="width: 35px;" readonly></td>`;
+            html += `<td><select class="form-select form-select-sm p-0 px-1" name="KOD0" style="width: 110px; font-size: 0.75rem;">${shapeOptions}</select></td>`;
+            html += `<td><select class="form-select form-select-sm p-0 px-1" name="KOD1" style="width: 110px; font-size: 0.75rem;">${shapeOptions}</select></td>`;
+            const floatFields =["H0", "B0", "H1", "B1"];
+            floatFields.forEach(f => { html += `<td><input type="number" step="any" class="form-control form-control-sm p-0 text-center" name="${f}" value="0"></td>`; });
+            html += `<td><input type="number" step="any" class="form-control form-control-sm p-0 text-center bg-light" name="W" value="0" readonly></td>`;
+            const floatFields2 =["S", "BVR", "BD", "R", "ROV", "R8", "SUMX", "PSI"];
+            floatFields2.forEach(f => { html += `<td><input type="number" step="any" class="form-control form-control-sm p-0 text-center" name="${f}" value="0"></td>`; });
+            html += `<td><input type="number" class="form-control form-control-sm p-0 text-center" name="Z" value="1" style="width: 30px;"></td>`;
+            html += `<td><select class="form-select form-select-sm p-0 px-1 text-center" name="SP" style="width: 40px; font-size: 0.75rem;"><option value="1">1</option><option value="2">2</option></select></td>`;
+            html += `<td><input type="number" step="any" class="form-control form-control-sm p-0 text-center" name="TOP" value="0"></td>`;
+            html += `<td><div class="btn-group w-100"><button class="btn btn-sm btn-info py-0 px-1 text-white fw-bold" onclick="openDrawingModal(this)" title="Чертеж">📐</button><button class="btn btn-sm btn-danger py-0 px-1 fw-bold" onclick="this.closest('tr').remove()" title="Удалить">X</button></div></td>`;
+            tr.innerHTML = html;
+            tbody.appendChild(tr);
+        }
+
+        function parseInput(id) {
+            const val = document.getElementById(id).value;
+            return parseFloat(val.replace(',', '.')) || 0;
+        }
+
+        async function saveCalibration(isTemplate, isCorrection) {
+            const data = {
+                ProfileId: profileId,
+                IsTemplate: isTemplate,
+                IsCorrection: isCorrection,
+                TargetDate: document.getElementById('TargetDate').value,
+                SteelId: document.getElementById('SteelId').value ? parseInt(document.getElementById('SteelId').value) : null,
+                // Используем parseInput для всех полей
+                W0: parseInput('W0'),
+                P0: parseInput('P0'),
+                L0: parseInput('L0'),
+                T0: parseInput('T0'),
+                TAU: parseInput('TAU'),
+                LR: parseInput('LR'),
+                VK: parseInput('VK'),
+                Passes: []
+            };
+
+            const rows = document.querySelectorAll('#passesTable tbody tr');
+            rows.forEach(row => {
+                const pass = {};
+                row.querySelectorAll('input, select').forEach(input => {
+                    const name = input.getAttribute('name');
+                    if (name) {
+                        // Замена запятой на точку перед парсингом для строк таблицы
+                        let valStr = input.value.replace(',', '.');
+                        pass[name] = valStr === "" ? 0 : parseFloat(valStr);
+                    }
+                });
+                data.Passes.push(pass);
+            });
+
+            const response = await fetch('/Calibration/SaveCalibration', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                window.location.href = '/Calibration/Index/' + result.profileId;
+            } else {
+                alert(result.message || 'Ошибка сохранения');
+            }
+        }
+
+        async function makeCopy() {
+            if (!confirm("Создать копию этого маршрута для редактирования?")) return;
+
+            const response = await fetch(`/Calibration/MakeCopy/${profileId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                // Перенаправляем пользователя на страницу только что созданной копии
+                window.location.href = '/Calibration/Index/' + result.newId;
+            } else {
+                alert(result.message || 'Ошибка при копировании');
+            }
+        }
+
+        async function runDiagnostics() {
+            // Собираем данные точно так же, как для сохранения, но отправляем на другой экшн
+            const data = {
+                W0: parseInput('W0'),
+                T0: parseInput('T0'),
+                Passes: []
+            };
+
+            const rows = document.querySelectorAll('#passesTable tbody tr');
+            rows.forEach(row => {
+                const pass = {};
+                row.querySelectorAll('input, select').forEach(input => {
+                    const name = input.getAttribute('name');
+                    if (name) {
+                        let valStr = input.value.replace(',', '.');
+                        pass[name] = valStr === "" ? 0 : parseFloat(valStr);
+                    }
+                });
+                data.Passes.push(pass);
+            });
+
+            const response = await fetch('/Calibration/Diagnose', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            const result = await response.json();
+
+            if (!result.messages || result.messages.length === 0) {
+                alert("Диагностика пройдена: Грубых геометрических ошибок не обнаружено.");
+            } else {
+                let report = result.hasCriticalErrors ? "НАЙДЕНЫ ОШИБКИ:\n" : "ПРЕДУПРЕЖДЕНИЯ:\n";
+                result.messages.forEach(m => report += "• " + m + "\n");
+                alert(report);
+            }
+        }
+    </script>
+    <script src="~/js/blueprintDrawing.js"></script>
+}

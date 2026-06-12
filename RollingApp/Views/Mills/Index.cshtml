@@ -1,0 +1,161 @@
+﻿@model IEnumerable<RollingApp.Models.Domain.Mill>
+@{
+    ViewData["Title"] = "Станы предприятия";
+    bool isAdmin = User.IsInRole("Admin");
+}
+
+<h2>Станы предприятия</h2>
+<hr />
+
+<div class="table-responsive">
+    <table class="table table-bordered table-hover align-middle text-center" id="millsTable">
+        <thead class="table-dark">
+            <tr>
+                <th>Наименование стана</th>
+                <th>Описание / Примечание</th>
+                <th class="text-center">Число клетей</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in Model)
+            {
+                <tr data-id="@item.Id">
+                    <td class="col-name text-start">
+                        <span class="view-mode fw-bold">@item.Name</span>
+                        <input type="text" class="form-control form-control-sm edit-mode d-none" name="Name" value="@item.Name" />
+                    </td>
+                    <td class="col-desc text-start">
+                        <span class="view-mode">@item.Description</span>
+                        <input type="text" class="form-control form-control-sm edit-mode d-none" name="Description" value="@item.Description" />
+                    </td>
+                    <td class="text-center">
+                        <span class="badge bg-secondary">@item.Stands.Count</span>
+                    </td>
+                    <td class="text-nowrap" style="width: 15%;">
+                        <a asp-controller="Stands" asp-action="Index" asp-route-id="@item.Id" class="btn btn-sm btn-info view-mode">Клети</a>
+                        @if (isAdmin)
+                        {
+                            <button class="btn btn-sm btn-warning view-mode" onclick="toggleEdit(this)">Изменить</button>
+                            <button class="btn btn-sm btn-danger view-mode" onclick="deleteRow(this, '/Mills/DeleteMill')">Удалить</button>
+
+                            <button class="btn btn-sm btn-success edit-mode d-none" onclick="saveMill(this)">Сохранить</button>
+                            <button class="btn btn-sm btn-secondary edit-mode d-none" onclick="cancelEdit(this)">Отмена</button>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@if (isAdmin)
+{
+    <button class="btn btn-primary mt-2" onclick="addNewMillRow()">Добавить стан</button>
+}
+
+@section Scripts {
+    <script>
+        function toggleEdit(btn) {
+            const row = btn.closest('tr');
+            row.querySelectorAll('.view-mode').forEach(el => el.classList.add('d-none'));
+            row.querySelectorAll('.edit-mode').forEach(el => el.classList.remove('d-none'));
+        }
+
+        function cancelEdit(btn) {
+            const row = btn.closest('tr');
+            const isNew = row.getAttribute('data-id') === '0';
+
+            if (isNew) {
+                row.remove(); // Отмена добавления
+            } else {
+                // Восстанавливаем значения инпутов из спанов
+                row.querySelector('input[name="Name"]').value = row.querySelector('.col-name .view-mode').innerText;
+                row.querySelector('input[name="Description"]').value = row.querySelector('.col-desc .view-mode').innerText;
+
+                row.querySelectorAll('.edit-mode').forEach(el => el.classList.add('d-none'));
+                row.querySelectorAll('.view-mode').forEach(el => el.classList.remove('d-none'));
+            }
+        }
+
+        function addNewMillRow() {
+            const tbody = document.querySelector('#millsTable tbody');
+            const newRow = document.createElement('tr');
+            newRow.setAttribute('data-id', '0');
+            newRow.innerHTML = `
+                <td class="col-name text-start">
+                    <span class="view-mode fw-bold d-none">Новый стан</span>
+                    <input type="text" class="form-control form-control-sm edit-mode" name="Name" value="Новый стан" />
+                </td>
+                <td class="col-desc text-start">
+                    <span class="view-mode d-none"></span>
+                    <input type="text" class="form-control form-control-sm edit-mode" name="Description" value="" />
+                </td>
+                <td class="text-center"><span class="badge bg-secondary">0</span></td>
+                <td class="text-nowrap" style="width: 15%;">
+                    <a href="#" class="btn btn-sm btn-info view-mode d-none disabled stand-link">Клети</a>
+                    <button class="btn btn-sm btn-warning view-mode d-none" onclick="toggleEdit(this)">Изменить</button>
+                    <button class="btn btn-sm btn-danger view-mode d-none" onclick="deleteRow(this, '/Mills/DeleteMill')">Удалить</button>
+
+                    <button class="btn btn-sm btn-success edit-mode" onclick="saveMill(this)">Сохранить</button>
+                    <button class="btn btn-sm btn-secondary edit-mode" onclick="cancelEdit(this)">Отмена</button>
+                </td>
+            `;
+            tbody.appendChild(newRow);
+        }
+
+        async function saveMill(btn) {
+            const row = btn.closest('tr');
+            const data = {
+                Id: parseInt(row.getAttribute('data-id')),
+                Name: row.querySelector('input[name="Name"]').value,
+                Description: row.querySelector('input[name="Description"]').value
+            };
+
+            const response = await fetch('/Mills/SaveMill', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+
+            if (result.success) {
+                if (data.Id === 0) {
+                    row.setAttribute('data-id', result.id);
+                    // Активируем ссылку на клети для нового стана
+                    const link = row.querySelector('.stand-link');
+                    link.href = `/Stands/Index/${result.id}`;
+                    link.classList.remove('disabled');
+                }
+
+                // Обновляем спаны
+                row.querySelector('.col-name .view-mode').innerText = data.Name;
+                row.querySelector('.col-desc .view-mode').innerText = data.Description;
+
+                // Переключаем интерфейс обратно в режим просмотра
+                row.querySelectorAll('.edit-mode').forEach(el => el.classList.add('d-none'));
+                row.querySelectorAll('.view-mode').forEach(el => el.classList.remove('d-none'));
+            } else {
+                alert(result.message || 'Ошибка сохранения');
+            }
+        }
+
+        async function deleteRow(btn, url) {
+            if (!confirm('Вы уверены, что хотите удалить эту запись?')) return;
+            const row = btn.closest('tr');
+            const id = parseInt(row.getAttribute('data-id'));
+
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(id)
+            });
+            const result = await response.json();
+            if (result.success) {
+                row.remove();
+            } else {
+                alert(result.message || 'Ошибка удаления');
+            }
+        }
+    </script>
+}

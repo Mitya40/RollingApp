@@ -1,0 +1,146 @@
+﻿@model IEnumerable<RollingApp.Controllers.UserViewModel>
+@{
+    ViewData["Title"] = "Управление пользователями";
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>Пользователи системы</h2>
+    <button class="btn btn-primary" onclick="addUserRow()">Добавить пользователя</button>
+</div>
+
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert-danger">@TempData["Error"]</div>
+}
+
+<div class="table-responsive">
+    <table class="table table-bordered table-hover align-middle text-center" id="usersTable">
+        <thead class="table-dark">
+            <tr>
+                <th>Логин</th>
+                <th>Email</th>
+                <th>ФИО</th>
+                <th>Уровень доступа (Роль)</th>
+                <th>Новый пароль</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var user in Model)
+            {
+                <tr data-id="@user.Id">
+                    <td>
+                        <span class="view-mode fw-bold text-primary">@user.UserName</span>
+                        <input type="text" class="form-control form-control-sm edit-mode d-none" name="UserName" value="@user.UserName">
+                    </td>
+                    <td>
+                        <span class="view-mode">@user.Email</span>
+                        <input type="email" class="form-control form-control-sm edit-mode d-none" name="Email" value="@user.Email">
+                    </td>
+                    <td>
+                        <span class="view-mode">@user.FullName</span>
+                        <input type="text" class="form-control form-control-sm edit-mode d-none" name="FullName" value="@user.FullName">
+                    </td>
+                    <td>
+                        <span class="view-mode badge @(user.Role == "Admin" ? "bg-danger" : "bg-info text-dark")">@user.Role</span>
+                        <select class="form-select form-select-sm edit-mode d-none" name="Role">
+                            <option value="Admin" selected="@(user.Role == "Admin")">Admin</option>
+                            <option value="Operator" selected="@(user.Role == "Operator")">Operator</option>
+                        </select>
+                    </td>
+                    <td>
+                        <span class="view-mode text-muted small">********</span>
+                        <input type="password" class="form-control form-control-sm edit-mode d-none" name="Password" placeholder="Оставьте пустым, если не меняете">
+                    </td>
+                    <td class="text-nowrap">
+                        <button class="btn btn-sm btn-warning view-mode" onclick="toggleEdit(this)">Изменить</button>
+                        @if (user.Email != "admin@mill.local")
+                        {
+                            <button class="btn btn-sm btn-danger view-mode" onclick="deleteUser(this)">Удалить</button>
+                        }
+                        <button class="btn btn-sm btn-success edit-mode d-none" onclick="saveUser(this)">Сохранить</button>
+                        <button class="btn btn-sm btn-secondary edit-mode d-none" onclick="location.reload()">Отмена</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@section Scripts {
+    <script>
+        function toggleEdit(btn) {
+            const row = btn.closest('tr');
+            row.querySelectorAll('.view-mode').forEach(el => el.classList.add('d-none'));
+            row.querySelectorAll('.edit-mode').forEach(el => el.classList.remove('d-none'));
+        }
+
+        function addUserRow() {
+            const tbody = document.querySelector('#usersTable tbody');
+            const tr = document.createElement('tr');
+            tr.setAttribute('data-id', '');
+
+            tr.innerHTML = `
+                <td><input type="text" class="form-control form-control-sm" name="UserName" placeholder="Логин"></td>
+                <td><input type="email" class="form-control form-control-sm" name="Email" placeholder="email@example.com"></td>
+                <td><input type="text" class="form-control form-control-sm" name="FullName" placeholder="Иванов И.И."></td>
+                <td>
+                    <select class="form-select form-select-sm" name="Role">
+                        <option value="Operator">Operator</option>
+                        <option value="Admin">Admin</option>
+                    </select>
+                </td>
+                <td><input type="password" class="form-control form-control-sm" name="Password" placeholder="Минимум 6 симв."></td>
+                <td class="text-nowrap">
+                    <button class="btn btn-sm btn-success" onclick="saveUser(this)">Сохранить</button>
+                    <button class="btn btn-sm btn-secondary" onclick="this.closest('tr').remove()">Отмена</button>
+                </td>
+            `;
+            tbody.prepend(tr);
+        }
+
+        async function saveUser(btn) {
+            const row = btn.closest('tr');
+            const data = {
+                Id: row.getAttribute('data-id'),
+                UserName: row.querySelector('[name="UserName"]').value,
+                Email: row.querySelector('[name="Email"]').value,
+                FullName: row.querySelector('[name="FullName"]').value,
+                Role: row.querySelector('[name="Role"]').value,
+                Password: row.querySelector('[name="Password"]').value
+            };
+
+            const response = await fetch('/Users/SaveUser', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                location.reload();
+            } else {
+                alert(result.message || 'Ошибка сохранения');
+            }
+        }
+
+        async function deleteUser(btn) {
+            if (!confirm('Удалить пользователя?')) return;
+            const row = btn.closest('tr');
+            const id = row.getAttribute('data-id');
+
+            const response = await fetch('/Users/DeleteUser', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(id)
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                row.remove();
+            } else {
+                alert(result.message || 'Ошибка удаления');
+            }
+        }
+    </script>
+}

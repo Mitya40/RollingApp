@@ -1,0 +1,235 @@
+﻿@model IEnumerable<RollingApp.Models.Domain.Steel>
+@{
+    ViewData["Title"] = "Справочник сталей";
+    bool isAdmin = User.IsInRole("Admin");
+}
+
+<h2>Справочник сталей и коэффициентов деформации</h2>
+<hr />
+
+<div class="table-responsive">
+    <table class="table table-bordered table-sm table-hover align-middle text-center" id="steelsTable" style="font-size: 0.9rem;">
+        <thead class="table-dark">
+            <tr>
+                <th rowspan="2" class="align-middle">Марка стали</th>
+                <th rowspan="2" class="align-middle" data-bs-toggle="tooltip" title="Тип легирования">Код (M)</th>
+                <th colspan="4" class="text-center bg-secondary" data-bs-toggle="tooltip" title="По методу Зюзина В.И."></th>
+                <th colspan="5" class="text-center bg-info text-dark" data-bs-toggle="tooltip" title="По методу Андреюка Л.В. и Тюленева Г.Г."></th>
+                @if (isAdmin)
+                {
+                    <th rowspan="2" class="align-middle">Действия</th>
+                }
+            </tr>
+            <tr>
+                <th data-bs-toggle="tooltip" title="Коэффициент K1">K1</th>
+                <th data-bs-toggle="tooltip" title="Коэффициент K2">K2</th>
+                <th data-bs-toggle="tooltip" title="Коэффициент K3">K3</th>
+                <th data-bs-toggle="tooltip" title="Коэффициент K4">K4</th>
+                <th data-bs-toggle="tooltip" title="Коэффициент K5">K5</th>
+                <th data-bs-toggle="tooltip" title="Коэффициент K6">K6</th>
+                <th data-bs-toggle="tooltip" title="Коэффициент K7">K7</th>
+                <th data-bs-toggle="tooltip" title="Коэффициент K8">K8</th>
+                <th data-bs-toggle="tooltip" title="Коэффициент K9">K9</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in Model)
+            {
+                <tr data-id="@item.Id">
+                    <td class="text-start">
+                        <span class="view-mode fw-bold">@item.Name</span>
+                        <input type="text" class="form-control form-control-sm edit-mode d-none" name="Name" value="@item.Name" />
+                    </td>
+                    <td>
+                        <span class="view-mode">@item.M.ToString(System.Globalization.CultureInfo.InvariantCulture)</span>
+                        <select class="form-select form-select-sm edit-mode d-none p-1" name="M">
+                            <option value="1.0" selected="@(item.M == 1.0)">1.0</option>
+                            <option value="1.4" selected="@(item.M == 1.4)">1.4</option>
+                        </select>
+                    </td>
+                    @for (int i = 1; i <= 9; i++)
+                    {
+                        var propValue = item.GetType().GetProperty($"K{i}")?.GetValue(item);
+                        string valStr = propValue != null ? Convert.ToDouble(propValue).ToString(System.Globalization.CultureInfo.InvariantCulture) : "0";
+                        <td>
+                            <span class="view-mode">@valStr</span>
+                            <input type="number" step="any" class="form-control form-control-sm p-1 edit-mode d-none" name="K@(i)" value="@valStr" />
+                        </td>
+                    }
+                    @if (isAdmin)
+                    {
+                        <td class="text-nowrap p-1 action-cell">
+                            <!-- Режим просмотра -->
+                            <button class="btn btn-sm btn-warning py-0 view-mode" onclick="toggleEdit(this)">Изменить</button>
+                            <button class="btn btn-sm btn-danger py-0 view-mode" onclick="deleteSteel(this)">Удалить</button>
+
+                            <!-- Режим редактирования -->
+                            <button class="btn btn-sm btn-success py-0 edit-mode d-none" onclick="saveSteel(this)">Сохранить</button>
+                            <button class="btn btn-sm btn-secondary py-0 edit-mode d-none" onclick="cancelEdit(this)">Отмена</button>
+                        </td>
+                    }
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@if (isAdmin)
+{
+    <button class="btn btn-primary mt-3" onclick="addSteelRow()">Добавить марку стали</button>
+}
+
+@section Scripts {
+    <script>
+        // Включает режим редактирования строки
+        function toggleEdit(btn) {
+            const row = btn.closest('tr');
+            row.querySelectorAll('.view-mode').forEach(el => el.classList.add('d-none'));
+            row.querySelectorAll('.edit-mode').forEach(el => el.classList.remove('d-none'));
+        }
+
+        // Отменяет редактирование и возвращает старые значения из span в input
+        function cancelEdit(btn) {
+            const row = btn.closest('tr');
+            const isNew = row.getAttribute('data-id') === '0';
+
+            if (isNew) {
+                row.remove(); // Если это была новая несохраненная строка - просто удаляем ее
+            } else {
+                // Восстанавливаем значения инпутов из спанов
+                row.querySelector('input[name="Name"]').value = row.querySelector('.text-start .view-mode').innerText;
+                row.querySelector('select[name="M"]').value = parseFloat(row.querySelector('td:nth-child(2) .view-mode').innerText).toFixed(1);
+
+                for(let i=1; i<=9; i++) {
+                    row.querySelector(`input[name="K${i}"]`).value = row.querySelector(`td:nth-child(${i+2}) .view-mode`).innerText;
+                }
+
+                // Переключаем видимость
+                row.querySelectorAll('.edit-mode').forEach(el => el.classList.add('d-none'));
+                row.querySelectorAll('.view-mode').forEach(el => el.classList.remove('d-none'));
+            }
+        }
+
+        // Добавляет пустую строку для ввода новой стали
+        function addSteelRow() {
+            const tbody = document.querySelector('#steelsTable tbody');
+            const tr = document.createElement('tr');
+            tr.setAttribute('data-id', '0'); // 0 означает, что записи еще нет в БД
+
+            let html = `<td class="text-start">
+                            <span class="view-mode fw-bold d-none">Новая сталь</span>
+                            <input type="text" class="form-control form-control-sm p-1 edit-mode" name="Name" value="Новая сталь">
+                        </td>`;
+
+            html += `<td>
+                        <span class="view-mode d-none">1.0</span>
+                        <select class="form-select form-select-sm edit-mode p-1" name="M">
+                            <option value="1.0" selected>1.0</option>
+                            <option value="1.4">1.4</option>
+                        </select>
+                     </td>`;
+
+            for(let i=1; i<=9; i++) {
+                html += `<td>
+                            <span class="view-mode d-none">0</span>
+                            <input type="number" step="any" class="form-control form-control-sm p-1 edit-mode" name="K${i}" value="0">
+                         </td>`;
+            }
+
+            html += `<td class="text-nowrap p-1 action-cell">
+                        <button class="btn btn-sm btn-warning py-0 view-mode d-none" onclick="toggleEdit(this)">Изменить</button>
+                        <button class="btn btn-sm btn-danger py-0 view-mode d-none" onclick="deleteSteel(this)">Удалить</button>
+                        <button class="btn btn-sm btn-success py-0 edit-mode" onclick="saveSteel(this)">Сохранить</button>
+                        <button class="btn btn-sm btn-secondary py-0 edit-mode" onclick="cancelEdit(this)">Отмена</button>
+                     </td>`;
+            tr.innerHTML = html;
+            tbody.appendChild(tr);
+        }
+
+        // Сохранение строки "На лету"
+        async function saveSteel(btn) {
+            const row = btn.closest('tr');
+
+            // 1. Собираем данные
+            const data = {
+                Id: parseInt(row.getAttribute('data-id')),
+                Name: row.querySelector('input[name="Name"]').value,
+                M: parseFloat(row.querySelector('select[name="M"]').value)
+            };
+
+            for(let i=1; i<=9; i++) {
+                data[`K${i}`] = parseFloat(row.querySelector(`input[name="K${i}"]`).value || 0);
+            }
+
+            // 2. Отправляем AJAX запрос
+            const response = await fetch('/Steels/SaveSteel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+
+            // 3. Обрабатываем успешное сохранение без перезагрузки страницы
+            if (result.success) {
+                // Если это была новая строка, обновляем её ID из БД
+                if (data.Id === 0) {
+                    row.setAttribute('data-id', result.id);
+                }
+
+                // Переносим данные из инпутов в спаны (режим чтения)
+                row.querySelector('.text-start .view-mode').innerText = data.Name;
+                row.querySelector('td:nth-child(2) .view-mode').innerText = data.M.toFixed(1); // Сохраняем формат 1.0
+
+                for(let i=1; i<=9; i++) {
+                    row.querySelector(`td:nth-child(${i+2}) .view-mode`).innerText = data[`K${i}`];
+                }
+
+                // Скрываем инпуты, показываем текст и стандартные кнопки
+                row.querySelectorAll('.edit-mode').forEach(el => el.classList.add('d-none'));
+                row.querySelectorAll('.view-mode').forEach(el => el.classList.remove('d-none'));
+
+                // Вызываем функцию сортировки таблицы
+                sortTableAlphabetically();
+            } else {
+                alert(result.message || 'Ошибка сохранения');
+            }
+        }
+
+        // Алфавитная сортировка таблицы
+        function sortTableAlphabetically() {
+            const tbody = document.querySelector('#steelsTable tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+
+            rows.sort((a, b) => {
+                // Получаем название стали. Если строка в режиме ред., берем из input, если в чтении - из span
+                let nameA = a.querySelector('input[name="Name"]').value.toLowerCase();
+                let nameB = b.querySelector('input[name="Name"]').value.toLowerCase();
+
+                return nameA.localeCompare(nameB);
+            });
+
+            // Добавление элементов обратно в DOM автоматически их переставляет
+            rows.forEach(row => tbody.appendChild(row));
+        }
+
+        // Удаление строки
+        async function deleteSteel(btn) {
+            if (!confirm('Удалить эту марку стали?')) return;
+            const row = btn.closest('tr');
+            const id = parseInt(row.getAttribute('data-id'));
+
+            const response = await fetch('/Steels/DeleteSteel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(id)
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                row.remove();
+            } else {
+                alert(result.message || 'Ошибка при удалении');
+            }
+        }
+    </script>
+}

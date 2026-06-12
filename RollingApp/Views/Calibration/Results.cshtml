@@ -1,0 +1,365 @@
+﻿@model RollingApp.Services.CalculationContext
+@{
+    ViewData["Title"] = "Результаты моделирования";
+    int npr = Model.NPR;
+    var settings = ViewBag.SettingsSummary as Dictionary<string, string>;
+}
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+<div class="container-fluid" id="exportArea">
+    <div class="d-flex justify-content-between align-items-center mb-3 mt-3">
+        <h3 class="fw-bold">Отчет: <span class="text-primary">@ViewBag.ProfileName</span></h3>
+        <div class="no-print">
+            <button class="btn btn-warning shadow-sm fw-bold" onclick="showExpertEvaluation()">Оценка ограничений</button>
+            <button class="btn btn-success shadow-sm" onclick="exportExcel()">Сформировать Excel (Все листы)</button>
+            <button class="btn btn-danger shadow-sm" onclick="exportPDF()">Сформировать PDF (С графиками)</button>
+            <a href="/Calibration/Config/@ViewContext.RouteData.Values["id"]" class="btn btn-outline-secondary ms-2">Назад</a>
+        </div>
+    </div>
+
+    <!-- Блок параметров (9 штук) -->
+    <div class="card shadow-sm border-secondary mb-4 bg-light">
+        <div class="card-body py-2 px-3">
+            <h6 class="border-bottom border-dark pb-1 mb-2 fw-bold">Примененные параметры моделирования:</h6>
+            <div class="row" style="font-size: 0.8rem;">
+                @if (settings != null)
+                {
+                    @foreach (var item in settings)
+                    {
+                        <div class="col-md-4 mb-1">
+                            <span class="text-muted">@item.Key:</span> <span class="fw-bold">@item.Value</span>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- Основной рабочий экран -->
+    <div class="card shadow border-dark mb-4">
+        <div class="card-header bg-dark text-white d-flex align-items-center no-print">
+            <label class="me-3 fw-bold mb-0">Просмотр отчета:</label>
+            <select id="reportSelector" class="form-select form-select-sm w-auto border-primary fw-bold text-primary" onchange="renderReport()">
+                <option value="ochag">1. Параметры очага деформации</option>
+                <option value="def">2. Параметры деформации</option>
+                <option value="zaxvat">3. Условия захвата и устойчивости</option>
+                <option value="skorost">4. Скоростной режим прокатки</option>
+                <option value="sopr">5. Сопротивление металла деформации</option>
+                <option value="temp">6. Температурный режим прокатки</option>
+                <option value="forma">7. Расчетное формоизменение и заполнение</option>
+                <option value="usilie">8. Усилие прокатки (По середине)</option>
+                <option value="motor">9. Загрузка электродвигателей</option>
+                <option value="valki">10. Сводная таблица калибровок</option>
+            </select>
+        </div>
+        <div class="card-body">
+            <div style="height: 350px; width: 100%;"><canvas id="mainChart"></canvas></div>
+            <div class="table-responsive mt-4">
+                <table class="table table-bordered table-sm text-center align-middle border-dark" id="resultsTable" style="font-size: 0.85rem;">
+                    <thead class="table-secondary border-dark" id="tableHead"></thead>
+                    <tbody id="tableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно Экспертной оценки -->
+<div class="modal fade" id="expertModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content shadow border-dark">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title">Оценка технологических ограничений</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body bg-light">
+                @if (ViewBag.RestrictionsReports != null)
+                {
+                    var reports = (List<RollingApp.Services.ExpertReport>)ViewBag.RestrictionsReports;
+                    bool isTotalSuccess = reports.All(r => r.IsPassed);
+
+                    if (isTotalSuccess)
+                    {
+                        <div class="alert alert-success fw-bold text-center">
+                            <h4 class="mb-0">✅ Прокатка заданного профиля возможна!</h4>
+                            <p class="mb-0 mt-2 text-dark">Все технологические и энергосиловые параметры находятся в пределах допустимых норм. Дальнейшее совершенствование не требуется.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-danger fw-bold text-center">
+                            <h5 class="mb-0">⚠ Внимание! Обнаружены технологические нарушения.</h5>
+                            <p class="mb-0 mt-1 text-dark small">Прокатка по текущему режиму может привести к браку или поломке оборудования.</p>
+                        </div>
+
+                        <div class="accordion" id="expertAccordion">
+                            @for (int i = 0; i < reports.Count; i++)
+                            {
+                                var rep = reports[i];
+                                <div class="accordion-item border-dark mb-1">
+                                    <h2 class="accordion-header">
+                                        <button class="accordion-button @(rep.IsPassed ? "collapsed bg-white" : "bg-warning text-dark fw-bold")" type="button" data-bs-toggle="collapse" data-bs-target="#collapse_@i">
+                                            @rep.Category
+                                            @if (rep.IsPassed) { <span class="badge bg-success ms-auto">В норме</span> }
+                                            else { <span class="badge bg-danger ms-auto">Ошибок: @rep.Warnings.Count</span> }
+                                        </button>
+                                    </h2>
+                                    <div id="collapse_@i" class="accordion-collapse collapse @(rep.IsPassed ? "" : "show")">
+                                        <div class="accordion-body p-2">
+                                            @if (rep.IsPassed)
+                                            {
+                                                <span class="text-success fw-bold">Нарушений не выявлено.</span>
+                                            }
+                                            else
+                                            {
+                                                <ul class="list-group list-group-flush">
+                                                    @foreach (var w in rep.Warnings)
+                                                    {
+                                                        <li class="list-group-item list-group-item-danger py-1">@w</li>
+                                                    }
+                                                </ul>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                }
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function showExpertEvaluation() {
+        var expertModal = new bootstrap.Modal(document.getElementById('expertModal'));
+        expertModal.show();
+    }
+</script>
+
+<!-- Скрытый холст для генерации графиков в PDF -->
+<canvas id="hiddenCanvas" style="display:none;" width="800" height="300"></canvas>
+
+<script>
+    const ctx = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model, new System.Text.Json.JsonSerializerOptions { 
+        IncludeFields = true, 
+        NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals 
+    }));
+
+    const restrictionsReports = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(ViewBag.RestrictionsReports, new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase }));
+
+    const npr = @Model.NPR;
+    const settingsSummary = @Html.Raw(Json.Serialize(ViewBag.SettingsSummary));
+    const shapeNames = { 0: "Гладкая бочка", 1: "Гладкая бочка", 2: "Круглый", 3: "Квадратный", 4: "Овальный", 5: "Плоский овал", 6: "Шестиугольный", 7: "Ромбический", 8: "Ящичный", 9: "Ребровой овал", 10: "Шестигранный", 11: "Ребровой", 12: "Квадрат(кант.)" };
+    
+    let mainChart = null;
+
+    const reports = {
+        ochag: { title: 'Параметры очага деформации', cols: ['Клеть', 'Заполнение/врез', 'Заполнение/выпуск', 'Привед. диам.', 'Отн. осей пол.', 'Отн. осей кал.', 'Защемление'], dataKeys: ['N', 'DELRP', 'DELV', 'A', 'A1', 'AK', 'AZ'], chartData: [{ label: 'Заполнение по врезу', key: 'DELRP', color: 'blue' }, { label: 'Заполнение по выпуску', key: 'DELV', color: 'red' }] },
+        def: { title: 'Параметры деформации', cols: ['Клеть', 'Обжатие (E)', 'Уширение', 'Длина', 'Коэфф. обж.', 'Коэфф. ушир.', 'Коэфф. вытяжки'], dataKeys: ['N', 'E', 'DELB', 'LOD', 'KOBJ', 'KUSH', 'KVIT'], chartData: [{ label: 'Коэфф. вытяжки', key: 'KVIT', color: 'green' }] },
+        zaxvat: { title: 'Условия захвата и устойчивости', cols: ['Клеть', 'Угол зах. (Расч)', 'Угол зах. (Доп)', 'Отн. осей (Зад)', 'Отн. осей (Доп)'], dataKeys: ['N', 'UGZAX', 'ALFA', 'A0', 'ADOP'], chartData: [{ label: 'Угол захвата', key: 'UGZAX', color: 'purple' }, { label: 'Доп. угол', key: 'ALFA', color: 'red', dashed: true }] },
+        skorost: { title: 'Скоростной режим прокатки', cols: ['Клеть', 'N_валк Мин', 'N_валк Раб', 'N_валк Макс', 'D_кат', 'V_мин', 'V_раб', 'V_макс'], dataKeys: ['N', 'NMIN', 'NR', 'NMAX', 'DK', 'VMIN', 'V1', 'VMAX'], chartData: [{ label: 'Скорость рабочая', key: 'V1', color: 'blue' }, { label: 'Скорость макс', key: 'VMAX', color: 'red', dashed: true }, { label: 'Скорость мин', key: 'VMIN', color: 'green', dashed: true }] },
+        sopr: { title: 'Сопротивление деформации', cols: ['Клеть', 'Степень деф.', 'Скорость деф.', 'Т раската(П)', 'Т раската(З)', 'Сопр.(П)', 'Сопр.(З)'], dataKeys: ['N', 'E', 'KSI', 'T1P', 'T1Z', 'SIGSP', 'SIGSZ'], chartData: [{ label: 'Сопр. (Передний)', key: 'SIGSP', color: 'teal' }] },
+        temp: { title: 'Температурный режим прокатки', cols: ['Клеть', 'Прирост Т(П)', 'Прирост Т(З)', 'Падение Т(П)', 'Падение Т(З)', 'Т раската(П)', 'Т раската(З)'], dataKeys: ['N', 'DTDP', 'DTDZ', 'DTP', 'DTZ', 'T1P', 'T1Z'], chartData: [{ label: 'Темп. Передний', key: 'T1P', color: 'red' }, { label: 'Темп. Задний', key: 'T1Z', color: 'blue' }] },
+        forma: { title: 'Расчетное формоизменение', cols: ['Клеть', 'B1 калибр', 'Попр. ушир.', 'Коэфф. ушир.', 'B1 расчет', 'Степень заполн.'], dataKeys: ['N', 'B1', 'KBETAP', 'BETAR', 'B1RP', 'DELRP'], chartData: [{ label: 'Степень заполнения', key: 'DELRP', color: 'orange' }] },
+        usilie: { title: 'Усилие прокатки', cols: ['Клеть', 'Коэфф. напр.', 'Давление', 'Конт. пов.', 'Усилие кН', 'Реакция R', 'Коэфф. загр.'], dataKeys: ['N', 'NSIG', 'PSRS', 'FKON', 'P1S', 'RS', 'KPS'], chartData: [{ label: 'Усилие P1S', key: 'P1S', color: 'maroon' }] },
+        motor: { title: 'Загрузка электродвигателей', cols: ['Двигатель', 'Частота раб.', 'Частота ном.', 'Момент прив.', 'Момент разв.', 'Мощность', 'Коэфф. загр.'], dataKeys: ['JJ', 'NDVR_', 'NDVN', 'MISUMS', 'MDV', 'NPRS', 'KDVS'], chartData: [{ label: 'Загрузка двигателя %', key: 'KDVS', color: 'green' }] },
+        valki: { title: 'ТАБЛИЦА КАЛИБРОВКИ ВАЛКОВ (СВОДНАЯ)', cols: ['N', 'Форма', 'HVR', 'BVR', 'Зазор', 'H1', 'B1', 'Sect(W)', 'Length(L)', 'Вытяжка', 'Угол зах.', 'D_бурт', 'D_кат', 'SpeedV', 'N_валк', 'N_двиг', 'Temp', 'Усилие', 'Реакция', 'Момент', 'Мощность'], dataKeys: ['N', 'KOD1', 'HVR', 'BVR', 'S', 'H1', 'B1', 'W', 'LP', 'KVIT', 'UGZAX', 'DB', 'DK', 'V1', 'NR', 'NDVR_', 'TSR', 'P1S', 'RS', 'MPRS', 'NPRS'], chartData: [{ label: 'Усилие P кН', key: 'P1S', color: 'blue' }] }
+    };
+
+    function renderReport() {
+        const reportKey = document.getElementById('reportSelector').value;
+        const config = reports[reportKey];
+        updateTable(config, 'tableHead', 'tableBody');
+        mainChart = updateChart('mainChart', config, mainChart);
+    }
+
+    function updateTable(config, headId, bodyId) {
+        document.getElementById(headId).innerHTML = '<tr>' + config.cols.map(c => `<th>${c}</th>`).join('') + '</tr>';
+        let bodyHtml = '';
+        for (let i = 1; i <= npr; i++) {
+            bodyHtml += '<tr>' + config.dataKeys.map(key => {
+                let v = ctx[key] ? ctx[key][i] : 0;
+                if (key === 'KOD1') v = shapeNames[v] || v;
+                else if (typeof v === 'number') v = isFinite(v) ? v.toFixed(3) : "—";
+                return `<td>${v}</td>`;
+            }).join('') + '</tr>';
+        }
+        document.getElementById(bodyId).innerHTML = bodyHtml;
+    }
+
+    function updateChart(canvasId, config, chartObj, isExport = false) {
+        const labels = [];
+        for (let i = 1; i <= npr; i++) labels.push('Кл.' + (ctx.N[i] || i));
+        const datasets = config.chartData.map(ds => {
+            const dataArr = [];
+            for (let i = 1; i <= npr; i++) {
+                let v = ctx[ds.key] ? ctx[ds.key][i] : 0;
+                dataArr.push(isFinite(v) ? v : null);
+            }
+            return { label: ds.label, data: dataArr, borderColor: ds.color, backgroundColor: ds.color, borderDash: ds.dashed ? [5, 5] : [], tension: 0.1, fill: false, pointRadius: isExport ? 5 : 3 };
+        });
+
+        if (chartObj) chartObj.destroy();
+        return new Chart(document.getElementById(canvasId).getContext('2d'), {
+            type: 'line',
+            data: { labels: labels, datasets: datasets },
+            options: { 
+                responsive: true, 
+                maintainAspectRatio: false, 
+                animation: isExport ? false : { duration: 1000 },
+                plugins: { legend: { position: 'bottom' } } 
+            }
+        });
+    }
+
+    // Вспомогательная функция для генерации читаемого имени файла
+    function getReportFilename(extension) {
+        const now = new Date();
+        const dd = String(now.getDate()).padStart(2, '0');
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const yyyy = now.getFullYear();
+        const hh = String(now.getHours()).padStart(2, '0');
+        const min = String(now.getMinutes()).padStart(2, '0');
+        
+        // Формат: Report_ДД-ММ-ГГГГ_ЧЧ-МИН (двоеточие заменено на тире для совместимости с Windows)
+        return `Report_${dd}-${mm}-${yyyy}_${hh}-${min}.${extension}`;
+    }
+
+    // --- ЭКСПОРТ EXCEL ---
+    function exportExcel() {
+        const wb = XLSX.utils.book_new();
+
+        // Лист 1: Параметры расчета
+        const settingsData = [["Параметр", "Значение"]];
+        Object.entries(settingsSummary).forEach(([k, v]) => settingsData.push([k, v]));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(settingsData), "Параметры расчета");
+
+        // Лист 2: Оценка технологических ограничений
+        if (restrictionsReports && restrictionsReports.length > 0) {
+            const restrRows = [["Категория ограничений", "Статус", "Сообщения (Замечания)"]];
+            let isTotalSuccess = restrictionsReports.every(r => r.isPassed);
+
+            if (isTotalSuccess) {
+                restrRows.push(["Общий вердикт", "УСПЕШНО", "Прокатка возможна. Нарушений не выявлено."]);
+            } else {
+                restrRows.push(["Общий вердикт", "ОШИБКА", "Обнаружены технологические нарушения!"]);
+            }
+            restrRows.push(["", "", ""]); // Пустая строка-разделитель
+
+            restrictionsReports.forEach(r => {
+                if (r.isPassed) {
+                    restrRows.push([r.category, "В норме", "Нарушений не выявлено"]);
+                } else {
+                    r.warnings.forEach(w => {
+                        restrRows.push([r.category, "Нарушение", w]);
+                    });
+                }
+            });
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(restrRows), "Оценка ограничений");
+        }
+
+        // Листы с таблицами расчетов
+        Object.keys(reports).forEach(key => {
+            const config = reports[key];
+            const rows = [config.cols];
+            for (let i = 1; i <= npr; i++) {
+                rows.push(config.dataKeys.map(k => (k === 'KOD1' ? shapeNames[ctx[k][i]] : ctx[k][i])));
+            }
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), config.title.substring(0, 30));
+        });
+
+        XLSX.writeFile(wb, getReportFilename('xlsx'));
+    }
+
+    // --- ЭКСПОРТ PDF ---
+    async function exportPDF() {
+        const container = document.createElement('div');
+        container.style.width = '1000px';
+
+        // Страница 1: Титульный лист с параметрами
+        let html = `<div style="text-align:center;"><h2>ОТЧЕТ МОДЕЛИРОВАНИЯ ПРОКАТКИ</h2><h3>Профиль: @ViewBag.ProfileName</h3></div><hr>`;
+        html += `<h4>Условия расчета:</h4><table border="1" style="width:100%; border-collapse:collapse; margin-bottom:30px;">`;
+        Object.entries(settingsSummary).forEach(([k, v]) => html += `<tr><td style="padding:5px; width:40%;"><b>${k}</b></td><td style="padding:5px;">${v}</td></tr>`);
+        html += `</table><div style="page-break-after: always;"></div>`;
+        
+        // Страница 2: Оценка технологических ограничений
+        if (restrictionsReports && restrictionsReports.length > 0) {
+            html += `<div style="text-align:center;"><h3 style="color:#0d6efd;">ОЦЕНКА ТЕХНОЛОГИЧЕСКИХ ОГРАНИЧЕНИЙ</h3></div><hr>`;
+            
+            let allPassed = restrictionsReports.every(r => r.isPassed);
+            if (allPassed) {
+                html += `<div style="text-align:center; background-color:#d1e7dd; padding: 20px; border: 1px solid #0f5132; margin-top:20px;">
+                            <h3 style="color:#0f5132; margin:0;">✅ Прокатка заданного профиля возможна!</h3>
+                            <p style="color:#0f5132; font-size:16px;">Все технологические и энергосиловые параметры находятся в пределах допустимых норм. Дальнейшее совершенствование не требуется.</p>
+                         </div>`;
+            } else {
+                html += `<div style="text-align:center; background-color:#f8d7da; padding: 15px; border: 1px solid #842029; margin-top:20px; margin-bottom: 20px;">
+                            <h3 style="color:#842029; margin:0;">⚠ Обнаружены технологические нарушения</h3>
+                         </div>`;
+                
+                html += `<ul style="font-size: 14px;">`;
+                for (let r of restrictionsReports) {
+                    if (!r.isPassed) {
+                        html += `<li style="margin-bottom: 10px;"><b>${r.category}</b><ul style="margin-top: 5px;">`;
+                        for (let w of r.warnings) {
+                            html += `<li style="color:#dc3545; padding-bottom:3px;">${w}</li>`;
+                        }
+                        html += `</ul></li>`;
+                    }
+                }
+                html += `</ul>`;
+            }
+            html += `<div style="page-break-after: always;"></div>`;
+        }
+        
+        container.innerHTML = html;
+
+        // Страницы 3+: Цикл генерации графиков и таблиц
+        const reportKeys = Object.keys(reports);
+        const hCanvas = document.getElementById('hiddenCanvas');
+        let tempChart = null;
+
+        for (let key of reportKeys) {
+            const config = reports[key];
+            
+            tempChart = updateChart('hiddenCanvas', config, tempChart, true);
+            const chartImg = hCanvas.toDataURL('image/png');
+
+            let tableHtml = `<h3 style="color:#0d6efd;">${config.title}</h3>`;
+            tableHtml += `<div style="text-align:center; margin-bottom:15px;"><img src="${chartImg}" style="width:90%; height:250px; border:1px solid #ccc;"></div>`;
+            tableHtml += `<table border="1" style="width:100%; border-collapse:collapse; font-size:10px; text-align:center;">`;
+            tableHtml += `<tr style="background:#eee;">` + config.cols.map(c => `<th>${c}</th>`).join('') + `</tr>`;
+            
+            for (let i = 1; i <= npr; i++) {
+                tableHtml += `<tr>` + config.dataKeys.map(k => {
+                    let v = ctx[k] ? ctx[k][i] : 0;
+                    if (k === 'KOD1') v = shapeNames[v] || v;
+                    else if (typeof v === 'number') v = isFinite(v) ? v.toFixed(2) : "—";
+                    return `<td>${v}</td>`;
+                }).join('') + `</tr>`;
+            }
+            tableHtml += `</table><div style="page-break-after: always;"></div>`;
+            container.innerHTML += tableHtml;
+        }
+
+        const opt = {
+            margin: 0.3,
+            filename: getReportFilename('pdf'),
+            html2canvas: { scale: 2, useCORS: true },
+            jsPDF: { unit: 'in', format: 'a4', orientation: 'landscape' }
+        };
+
+        html2pdf().set(opt).from(container).save();
+    }
+
+
+    window.onload = renderReport;
+</script>
